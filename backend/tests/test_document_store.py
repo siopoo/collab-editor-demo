@@ -83,7 +83,7 @@ def test_delete_block_removes_it_from_the_document(store: DocumentStore) -> None
     assert store.snapshot("demo") == []
 
 
-def test_stale_base_version_returns_latest_block_without_mutation(
+def test_two_updates_with_same_base_version_produce_one_success_and_one_conflict(
     store: DocumentStore,
 ) -> None:
     store.apply("demo", create_operation())
@@ -134,3 +134,63 @@ def test_duplicate_tx_id_returns_original_ack_without_applying_twice(
     assert store.snapshot("demo") == [
         {"id": "block-1", "text": "Hello", "version": 1}
     ]
+
+
+def test_retried_update_with_same_tx_id_does_not_increment_version_twice(
+    store: DocumentStore,
+) -> None:
+    store.apply("demo", create_operation())
+    operation = {
+        "type": "update_block",
+        "tx_id": "tx-update",
+        "client_id": "client-a",
+        "block_id": "block-1",
+        "base_version": 1,
+        "text": "Updated once",
+    }
+
+    first = store.apply("demo", operation)
+    retry = store.apply("demo", operation)
+
+    assert first.message == retry.message
+    assert retry.applied is False
+    assert store.snapshot("demo") == [
+        {"id": "block-1", "text": "Updated once", "version": 2}
+    ]
+
+
+def test_update_after_delete_is_rejected_without_recreating_block(
+    store: DocumentStore,
+) -> None:
+    store.apply("demo", create_operation())
+    store.apply(
+        "demo",
+        {
+            "type": "delete_block",
+            "tx_id": "tx-delete",
+            "client_id": "client-a",
+            "block_id": "block-1",
+            "base_version": 1,
+        },
+    )
+
+    result = store.apply(
+        "demo",
+        {
+            "type": "update_block",
+            "tx_id": "tx-late-update",
+            "client_id": "client-b",
+            "block_id": "block-1",
+            "base_version": 1,
+            "text": "Late edit",
+        },
+    )
+
+    assert result.applied is False
+    assert result.message == {
+        "type": "ack",
+        "tx_id": "tx-late-update",
+        "success": False,
+        "error": "Block does not exist.",
+    }
+    assert store.snapshot("demo") == []

@@ -122,7 +122,7 @@ update 和 delete 携带 `base_version`。只有它与服务端当前 Block vers
 }
 ```
 
-客户端以服务端 Block 覆盖本地内容，并显示“内容发生并发修改，已同步服务器最新版本。”。这是有意选择的简单 optimistic concurrency control。
+客户端以服务端 Block 覆盖本地内容，并显示“该文本块已被其他客户端修改，本地内容已同步为服务器最新版本。”。这是有意选择的简单 optimistic concurrency control。若目标 Block 已被删除，后到的 update 或 delete 会收到 `Block does not exist.` 的失败 ACK，不会重新创建该 Block；客户端随后重连并以服务器 snapshot 校正乐观状态。
 
 本 Demo 没有选择 OT / CRDT，因为题目重点是把小型协同系统的状态所有权、版本检查、ACK、重试和去重讲清楚。引入框架会显著扩大代码和解释面，也会掩盖这些基本机制。局限是：同一 Block 的并发编辑不能自动合并，后提交的一方可能丢失本地草稿；它也没有操作变换、因果顺序或离线多版本合并能力。
 
@@ -130,7 +130,7 @@ update 和 delete 携带 `base_version`。只有它与服务端当前 Block vers
 
 连接关闭后客户端等待 1.2 秒重连。新连接首先接收权威 snapshot；未 ACK 的 operation 再覆盖到本地视图，并以原 `tx_id` 重发。服务端 tx 去重保证已经执行但 ACK 丢失的事务不会执行两次。
 
-为避免永久坏连接导致无限发送，每个 operation 在一个页面生命周期内最多发送 3 次。超过上限后客户端丢弃该 pending operation，采用下一次服务器 snapshot，并在调试信息面板显示“已达到重试上限”。输入以 300ms debounce 合并；同一 Block 同时只允许一个 update 在途，ACK 后若还有更新的草稿，再用新版本发送下一笔事务。
+为避免永久坏连接导致无限发送，每个 operation 在一个页面生命周期内最多发送 3 次。超过上限后客户端丢弃该 pending operation，采用当前重连收到的服务器 snapshot，并在调试信息面板显示“已达到重试上限”。输入以 300ms debounce 合并；同一 Block 同时只允许一个 update 在途，ACK 后若还有更新的草稿，再用新版本发送下一笔事务。
 
 ### 在线人数
 
@@ -144,6 +144,7 @@ update 和 delete 携带 `base_version`。只有它与服务端当前 Block vers
 2. 第一次前端构建中，`tsconfig.node.json` 开启了 `allowImportingTsExtensions`，却没有启用该选项要求的 `noEmit` / `emitDeclarationOnly`，TypeScript 拒绝构建。项目没有带 `.ts` 后缀的 import，因此删除了这个多余选项。
 3. 慢网下用户可能在 create ACK 返回前开始输入。若直接用 ACK Block 替换本地 Block，会清空更新的草稿。现在 ACK 只提升服务端 version，保留较新的 DOM 文本；create ACK 后再串行发送草稿更新，并有对应 reducer 回归测试。
 4. 仅依赖 tx 去重仍可能让客户端在每次重连时永久重发同一事务。客户端因此增加每事务 3 次的发送上限；服务端去重负责“不会重复执行”，客户端上限负责“不会无限发送”。
+5. 已完成事务的 ACK 或 conflict 可能因网络延迟再次到达。若 reducer 无条件处理，旧响应会把较新的 Block version 或内容回退。现在只有仍存在于 `pending` 中的事务响应才会改变本地状态，并用重放回归测试锁定该行为。
 
 ## 6. 还有哪些没有完成
 
@@ -175,10 +176,11 @@ update 和 delete 携带 `base_version`。只有它与服务端当前 Block vers
 - 删除 Block
 - version 正常增长
 - version conflict 返回服务端最新 Block 且不修改状态
-- 重复 `tx_id` 返回原响应且不重复执行
+- 重复 `tx_id` 返回原响应，update 重试不会重复递增 version
+- Block 删除后到达的旧 update 返回失败 ACK 且不会重建 Block
 - 两个 WebSocket 客户端的 snapshot、presence、ACK 与广播
 
-前端测试覆盖 snapshot、按稳定 ID 应用远端更新、冲突覆盖、重连时 pending overlay、create ACK 保留新草稿和有限重试边界。生产构建通过 `tsc -b && vite build`。浏览器 smoke test 实际打开两个页面验证了 A→B、B→A、在线人数、ACK 与删除同步。
+前端测试覆盖 snapshot、按稳定 ID 应用远端更新、冲突覆盖、重连时 pending overlay、create ACK 保留新草稿、ACK/conflict 重放保护和有限重试边界。生产构建通过 `tsc -b && vite build`。浏览器 smoke test 实际打开两个页面验证了 A→B、B→A、在线人数、ACK 与删除同步。
 
 ## 9. Demo 演示步骤
 
@@ -190,7 +192,7 @@ update 和 delete 携带 `base_version`。只有它与服务端当前 Block vers
 6. 在 B 删除 Block；A 同步移除。
 7. 停掉 backend，观察连接状态变为“正在重连”；重新启动 backend 后客户端自动连接并请求 snapshot。
 8. 重复 tx 去重可运行 `python -m pytest tests/test_document_store.py -k duplicate -vv` 演示：同一 `tx_id` 调用两次，但文档只有一个 Block。
-9. version conflict 可运行 `python -m pytest tests/test_document_store.py -k stale -vv` 演示：两个操作都基于 version 1，只有第一个成功，第二个收到 version 2 的最新 Block。
+9. version conflict 可运行 `python -m pytest tests/test_document_store.py -k same_base_version -vv` 演示：两个操作都基于 version 1，只有第一个成功，第二个收到 version 2 的最新 Block。
 
 注意：服务端重启会清空所有文档，因为当前状态仅在内存中。要演示“ACK 丢失后的重连重试”而不丢服务端状态，应只断开浏览器网络/WebSocket，不要重启服务端进程。
 

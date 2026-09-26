@@ -127,7 +127,21 @@ describe("reduceServerMessage", () => {
   });
 
   it("shows a rejected acknowledgement as a natural Chinese message", () => {
-    const state = reduceServerMessage(initialState, {
+    const existing = {
+      ...initialState,
+      pending: {
+        "failed-update": {
+          type: "update_block" as const,
+          tx_id: "failed-update",
+          client_id: "client-a",
+          block_id: "missing",
+          base_version: 1,
+          text: "Lost edit",
+        },
+      },
+    };
+
+    const state = reduceServerMessage(existing, {
       type: "ack",
       tx_id: "failed-update",
       success: false,
@@ -135,6 +149,41 @@ describe("reduceServerMessage", () => {
     });
 
     expect(state.lastAck).toBe("failed-update: 失败 — 文本块不存在。");
+  });
+
+  it("ignores a replayed acknowledgement after its transaction completed", () => {
+    const existing = {
+      ...initialState,
+      blocks: [{ id: "one", text: "Newest content", version: 3 }],
+      lastAck: "newer-update: 成功",
+    };
+
+    const state = reduceServerMessage(existing, {
+      type: "ack",
+      tx_id: "old-update",
+      success: true,
+      operation_type: "update_block",
+      block: { id: "one", text: "Older content", version: 2 },
+    });
+
+    expect(state).toBe(existing);
+  });
+
+  it("ignores a replayed conflict after its transaction completed", () => {
+    const existing = {
+      ...initialState,
+      blocks: [{ id: "one", text: "Newest content", version: 3 }],
+      lastConflict: "较新的冲突提示",
+    };
+
+    const state = reduceServerMessage(existing, {
+      type: "conflict",
+      tx_id: "old-update",
+      message: "Block version does not match the server version.",
+      block: { id: "one", text: "Older content", version: 2 },
+    });
+
+    expect(state).toBe(existing);
   });
 });
 

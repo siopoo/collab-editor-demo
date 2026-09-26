@@ -181,6 +181,7 @@ export function reduceServerMessage(
       };
     }
     case "ack": {
+      if (!state.pending[message.tx_id]) return state;
       const pending = withoutPending(state.pending, message.tx_id);
       if (!message.success) {
         return {
@@ -210,6 +211,7 @@ export function reduceServerMessage(
       };
     }
     case "conflict":
+      if (!state.pending[message.tx_id]) return state;
       return {
         ...state,
         blocks: upsertBlock(state.blocks, message.block),

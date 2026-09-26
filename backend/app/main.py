@@ -50,34 +50,44 @@ async def health() -> dict[str, str]:
 async def document_websocket(websocket: WebSocket, document_id: str) -> None:
     await manager.connect(document_id, websocket)
     try:
-        await websocket.send_json(
-            {
-                "type": "snapshot",
-                "document_id": document_id,
-                "blocks": store.snapshot(document_id),
-                "online_users": manager.count(document_id),
-            }
-        )
-        await manager.broadcast(
-            document_id,
-            {"type": "presence", "online_users": manager.count(document_id)},
-        )
+        await send_initial_state(websocket, document_id)
 
         while True:
             operation = await websocket.receive_json()
-            result = store.apply(document_id, operation)
-            await websocket.send_json(result.message)
-            if result.applied:
-                await manager.broadcast(
-                    document_id,
-                    operation_event(operation, result),
-                    exclude=websocket,
-                )
+            await process_operation(websocket, document_id, operation)
     except WebSocketDisconnect:
         manager.disconnect(document_id, websocket)
         await manager.broadcast(
             document_id,
             {"type": "presence", "online_users": manager.count(document_id)},
+        )
+
+
+async def send_initial_state(websocket: WebSocket, document_id: str) -> None:
+    await websocket.send_json(
+        {
+            "type": "snapshot",
+            "document_id": document_id,
+            "blocks": store.snapshot(document_id),
+            "online_users": manager.count(document_id),
+        }
+    )
+    await manager.broadcast(
+        document_id,
+        {"type": "presence", "online_users": manager.count(document_id)},
+    )
+
+
+async def process_operation(
+    websocket: WebSocket, document_id: str, operation: dict[str, Any]
+) -> None:
+    result = store.apply(document_id, operation)
+    await websocket.send_json(result.message)
+    if result.applied:
+        await manager.broadcast(
+            document_id,
+            operation_event(operation, result),
+            exclude=websocket,
         )
 
 
