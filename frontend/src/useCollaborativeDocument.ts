@@ -133,7 +133,7 @@ export function useCollaborativeDocument(documentId: string) {
               pending: retained,
               lastAck:
                 expired.length > 0
-                  ? `${expired.at(-1)?.tx_id}: retry limit reached`
+                  ? `${expired.at(-1)?.tx_id}: 已达到重试上限`
                   : current.lastAck,
             },
             message,

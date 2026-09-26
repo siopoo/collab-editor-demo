@@ -87,6 +87,20 @@ export function canSendOperation(attempts: number): boolean {
   return attempts < MAX_OPERATION_SENDS;
 }
 
+function localizeServerError(error?: string): string {
+  const messages: Record<string, string> = {
+    "tx_id is required.": "缺少 tx_id。",
+    "Unsupported operation type.": "不支持的操作类型。",
+    "block_id is required.": "缺少 block_id。",
+    "text must be a string.": "text 必须是字符串。",
+    "Block already exists.": "文本块已存在。",
+    "after_block_id does not exist.": "after_block_id 对应的文本块不存在。",
+    "Block does not exist.": "文本块不存在。",
+  };
+  if (!error) return "未知错误。";
+  return messages[error] ?? "服务器拒绝了该操作。";
+}
+
 function upsertBlock(blocks: Block[], block: Block): Block[] {
   const index = blocks.findIndex((candidate) => candidate.id === block.id);
   if (index === -1) return [...blocks, block];
@@ -172,7 +186,7 @@ export function reduceServerMessage(
         return {
           ...state,
           pending,
-          lastAck: `${message.tx_id}: rejected — ${message.error ?? "unknown error"}`,
+          lastAck: `${message.tx_id}: 失败 — ${localizeServerError(message.error)}`,
         };
       }
       let blocks = state.blocks;
@@ -192,7 +206,7 @@ export function reduceServerMessage(
         ...state,
         blocks,
         pending,
-        lastAck: `${message.tx_id}: success`,
+        lastAck: `${message.tx_id}: 成功`,
       };
     }
     case "conflict":
@@ -200,7 +214,8 @@ export function reduceServerMessage(
         ...state,
         blocks: upsertBlock(state.blocks, message.block),
         pending: withoutPending(state.pending, message.tx_id),
-        lastConflict: "内容发生并发修改，已同步服务器最新版本。",
+        lastConflict:
+          "该文本块已被其他客户端修改，本地内容已同步为服务器最新版本。",
       };
   }
 }

@@ -62,7 +62,9 @@ describe("reduceServerMessage", () => {
 
     expect(state.blocks).toEqual([{ id: "one", text: "Server copy", version: 2 }]);
     expect(state.pending).toEqual({});
-    expect(state.lastConflict).toBe("内容发生并发修改，已同步服务器最新版本。");
+    expect(state.lastConflict).toBe(
+      "该文本块已被其他客户端修改，本地内容已同步为服务器最新版本。",
+    );
   });
 
   it("reapplies pending local edits over a reconnect snapshot", () => {
@@ -121,6 +123,18 @@ describe("reduceServerMessage", () => {
       { id: "one", text: "Typed before ACK", version: 1 },
     ]);
     expect(state.pending).toEqual({});
+    expect(state.lastAck).toBe("create: 成功");
+  });
+
+  it("shows a rejected acknowledgement as a natural Chinese message", () => {
+    const state = reduceServerMessage(initialState, {
+      type: "ack",
+      tx_id: "failed-update",
+      success: false,
+      error: "Block does not exist.",
+    });
+
+    expect(state.lastAck).toBe("failed-update: 失败 — 文本块不存在。");
   });
 });
 

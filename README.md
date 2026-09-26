@@ -1,4 +1,4 @@
-# Collaborative Editor Demo
+# 协同编辑器 Demo
 
 一个基于 DOM 渲染的小型协同编辑器。它刻意不实现完整的 Google Docs：重点是用尽量少的组件清楚展示服务端权威状态、事务 ACK、乐观并发控制、断线重连、有限重试与事务去重。
 
@@ -130,9 +130,9 @@ update 和 delete 携带 `base_version`。只有它与服务端当前 Block vers
 
 连接关闭后客户端等待 1.2 秒重连。新连接首先接收权威 snapshot；未 ACK 的 operation 再覆盖到本地视图，并以原 `tx_id` 重发。服务端 tx 去重保证已经执行但 ACK 丢失的事务不会执行两次。
 
-为避免永久坏连接导致无限发送，每个 operation 在一个页面生命周期内最多发送 3 次。超过上限后客户端丢弃该 pending operation，采用下一次服务器 snapshot，并在 Debug 面板显示 `retry limit reached`。输入以 300ms debounce 合并；同一 Block 同时只允许一个 update 在途，ACK 后若还有更新的草稿，再用新版本发送下一笔事务。
+为避免永久坏连接导致无限发送，每个 operation 在一个页面生命周期内最多发送 3 次。超过上限后客户端丢弃该 pending operation，采用下一次服务器 snapshot，并在调试信息面板显示“已达到重试上限”。输入以 300ms debounce 合并；同一 Block 同时只允许一个 update 在途，ACK 后若还有更新的草稿，再用新版本发送下一笔事务。
 
-### Online Users
+### 在线人数
 
 服务端按 `document_id` 维护当前 WebSocket 列表。连接或断开时向该文档所有客户端广播连接数量。这里没有实现用户身份、光标或选区 Presence。
 
@@ -183,39 +183,39 @@ update 和 delete 携带 `base_version`。只有它与服务端当前 Block vers
 ## 9. Demo 演示步骤
 
 1. 启动 backend 和 frontend，在两个窗口打开 `http://localhost:5173/?doc=demo`。
-2. 确认两个窗口都显示 `Connected` 和 `Online Users: 2`。
-3. 在 A 点击 **Create the first block**，输入文本；约 300ms 后 B 显示相同内容。
+2. 确认两个窗口都显示“已连接”和“在线人数：2”。
+3. 在 A 点击 **新建第一个文本块**，输入文本；约 300ms 后 B 显示相同内容。
 4. 在 B 修改同一 Block；A 实时收到新文本和递增后的 version。
-5. 观察底部 `Last ACK` 与 `Pending Operations`；正常完成后 pending 回到 0。
+5. 观察底部“最近一次 ACK”与“待确认操作”；正常完成后显示“当前没有待确认操作”。
 6. 在 B 删除 Block；A 同步移除。
-7. 停掉 backend，观察连接状态变为 `Reconnecting`；重新启动 backend 后客户端自动连接并请求 snapshot。
+7. 停掉 backend，观察连接状态变为“正在重连”；重新启动 backend 后客户端自动连接并请求 snapshot。
 8. 重复 tx 去重可运行 `python -m pytest tests/test_document_store.py -k duplicate -vv` 演示：同一 `tx_id` 调用两次，但文档只有一个 Block。
 9. version conflict 可运行 `python -m pytest tests/test_document_store.py -k stale -vv` 演示：两个操作都基于 version 1，只有第一个成功，第二个收到 version 2 的最新 Block。
 
 注意：服务端重启会清空所有文档，因为当前状态仅在内存中。要演示“ACK 丢失后的重连重试”而不丢服务端状态，应只断开浏览器网络/WebSocket，不要重启服务端进程。
 
-## 10. 面试官可能问的设计问题
+## 设计取舍与关键问题
 
-### 为什么服务端是 authoritative state？
+### 服务端作为权威状态
 
 所有客户端提交都经过同一个版本检查和顺序化入口，ACK 和广播只描述已经接受的状态。否则两个客户端可能各自认为自己的写入成功，无法给出一致结果。
 
-### 为什么版本放在 Block 而不是 Document？
+### Block 级版本控制
 
 Block version 缩小冲突域：编辑不同 Block 可以同时成功。代价是跨 Block 的原子事务和文档级一致版本尚未实现。
 
-### tx_id 去重和 version check 分别解决什么？
+### 事务去重与版本校验
 
 tx_id 解决“同一操作因重试到达多次”；version 解决“不同操作基于同一旧状态并发修改”。两者不能互相替代。
 
-### 为什么不自动合并冲突？
+### 当前冲突策略及局限
 
 没有 OT / CRDT 时，字符级合并很容易产生不可预测结果。当前策略选择确定性：拒绝旧版本、展示服务端最新值、明确告知用户。它适合解释机制，不适合无损多人写作。
 
-### 断线期间的操作会怎样？
+### 断线期间的操作处理
 
 操作进入 `pending`，重连 snapshot 到达后以同一 `tx_id` 有限重试。若服务端已经执行，去重表返回原 ACK；若未执行，则正常执行；超过 3 次仍无 ACK 就停止发送并采用权威 snapshot。
 
-### 如何扩展到多实例？
+### 多实例扩展思路
 
 内存文档和连接表必须拆分：数据库保存 snapshot / operation log，共享幂等存储保存 tx 结果，Redis Pub/Sub 或等价消息层把一个实例接受的 operation 广播到其他实例上的 WebSocket 客户端。

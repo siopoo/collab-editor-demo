@@ -1,7 +1,16 @@
 import { useEffect, useRef } from "react";
 
 import type { Block } from "./collaboration";
-import { useCollaborativeDocument } from "./useCollaborativeDocument";
+import {
+  type ConnectionStatus,
+  useCollaborativeDocument,
+} from "./useCollaborativeDocument";
+
+const connectionStatusLabels: Record<ConnectionStatus, string> = {
+  Connected: "已连接",
+  Reconnecting: "正在重连",
+  Disconnected: "已断开",
+};
 
 function EditableBlock({
   block,
@@ -25,17 +34,17 @@ function EditableBlock({
   return (
     <article className="editor-block">
       <div className="block-meta">
-        <span className="block-id">{block.id.slice(0, 8)}</span>
-        <span>v{block.version}</span>
-        {pending && <span className="pending-dot">pending</span>}
+        <span className="block-id">文本块 ID：{block.id.slice(0, 8)}</span>
+        <span>版本 {block.version}</span>
+        {pending && <span className="pending-dot">待确认</span>}
         <button
           className="delete-button"
           type="button"
           disabled={pending || block.version === 0}
           onClick={onDelete}
-          aria-label={`Delete block ${block.id.slice(0, 8)}`}
+          aria-label={`删除文本块 ${block.id.slice(0, 8)}`}
         >
-          Delete
+          删除
         </button>
       </div>
       <div
@@ -44,8 +53,8 @@ function EditableBlock({
         contentEditable
         role="textbox"
         aria-multiline="true"
-        aria-label={`Editable block ${block.id.slice(0, 8)}`}
-        data-placeholder="Start typing…"
+        aria-label={`可编辑文本块 ${block.id.slice(0, 8)}`}
+        data-placeholder="请输入内容…"
         suppressContentEditableWarning
         onInput={(event) => onChange(event.currentTarget.innerText)}
       />
@@ -60,29 +69,30 @@ function getDocumentId(): string {
 export default function App() {
   const documentId = getDocumentId();
   const editor = useCollaborativeDocument(documentId);
+  const pendingOperationCount = Object.keys(editor.pending).length;
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Interview demo</p>
-          <h1>Collaborative Editor</h1>
+          <p className="eyebrow">面试作品</p>
+          <h1>协同编辑器</h1>
         </div>
         <dl className="status-grid">
           <div>
-            <dt>Document ID</dt>
+            <dt>文档 ID</dt>
             <dd>{documentId}</dd>
           </div>
           <div>
-            <dt>Connection</dt>
+            <dt>连接状态</dt>
             <dd>
               <span className={`status status-${editor.connectionStatus.toLowerCase()}`}>
-                {editor.connectionStatus}
+                {connectionStatusLabels[editor.connectionStatus]}
               </span>
             </dd>
           </div>
           <div>
-            <dt>Online Users</dt>
+            <dt>在线人数</dt>
             <dd>{editor.onlineUsers}</dd>
           </div>
         </dl>
@@ -94,22 +104,22 @@ export default function App() {
         </aside>
       )}
 
-      <section className="workspace" aria-label="Document blocks">
+      <section className="workspace" aria-label="文档文本块">
         <div className="workspace-heading">
           <div>
-            <h2>Document blocks</h2>
-            <p>Each block has a stable ID and an independent server version.</p>
+            <h2>文档内容</h2>
+            <p>每个文本块都有稳定的 ID 和独立的服务器版本。</p>
           </div>
           <button className="add-button" type="button" onClick={editor.createBlock}>
-            + Add block
+            + 新建文本块
           </button>
         </div>
 
         <div className="block-list">
           {editor.blocks.length === 0 ? (
             <button className="empty-state" type="button" onClick={editor.createBlock}>
-              <span>No blocks yet</span>
-              Create the first block
+              <span>当前文档还没有内容</span>
+              新建第一个文本块
             </button>
           ) : (
             editor.blocks.map((block) => (
@@ -125,18 +135,22 @@ export default function App() {
         </div>
       </section>
 
-      <section className="debug-panel" aria-label="Collaboration debug information">
+      <section className="debug-panel" aria-label="协同调试信息">
         <div>
-          <span>Last ACK</span>
-          <code>{editor.lastAck}</code>
+          <span>最近一次 ACK</span>
+          <code>{editor.lastAck === "—" ? "暂无 ACK" : editor.lastAck}</code>
         </div>
         <div>
-          <span>Pending Operations</span>
-          <code>{Object.keys(editor.pending).length}</code>
+          <span>待确认操作</span>
+          <code>
+            {pendingOperationCount === 0
+              ? "当前没有待确认操作"
+              : `${pendingOperationCount} 项`}
+          </code>
         </div>
         <div>
-          <span>Last Conflict</span>
-          <code>{editor.lastConflict}</code>
+          <span>最近一次冲突</span>
+          <code>{editor.lastConflict === "—" ? "暂无冲突" : editor.lastConflict}</code>
         </div>
       </section>
     </main>
